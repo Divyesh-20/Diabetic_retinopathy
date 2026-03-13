@@ -1,0 +1,14 @@
+streamlit
+tensorflow
+keras
+numpy
+pandas
+pillow
+matplotlib
+plotly
+scikit-learn
+opencv-python
+reportlab
+fpdf2
+scipy
+seaborn
