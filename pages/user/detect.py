@@ -10,8 +10,15 @@ from utils.auth import require_role
 from utils.preprocessing import preprocess_for_model, load_image_pil
 from utils.gradcam import generate_gradcam
 from utils.report_generator import generate_pdf_report
+from utils.class_reversal_fix import fix_predictions, should_reverse_classes
 from models.model_factory import load_model, list_available_models
 from config import DR_STAGES, DR_STAGE_DESCRIPTIONS, DR_STAGE_COLORS, MAIN_MODEL, MODELS
+
+
+@st.cache_resource
+def get_cached_model(model_name):
+    """Cache model in session to avoid reloading on every rerun."""
+    return load_model(model_name)
 
 
 def show_detect_page():
@@ -20,6 +27,22 @@ def show_detect_page():
     st.markdown("## 🔬 Fundus Image Analysis")
     st.markdown("Upload a retinal fundus image to detect the stage of Diabetic Retinopathy.")
     st.divider()
+
+    # ── Initialize session state for file tracking ────────────────────────────
+    if "uploaded_file_id" not in st.session_state:
+        st.session_state.uploaded_file_id = None
+    
+    # ── Debug option: Invert class predictions ────────────────────────────────
+    with st.expander("⚙️ Debug Settings"):
+        default_invert = should_reverse_classes()
+        invert_toggle = st.checkbox(
+            "🔄 Invert DR Stage Classes (if predictions seem reversed)",
+            value=default_invert,
+            help="Enable this if No_DR images show as Proliferative_DR. This reverses the class order."
+        )
+        st.session_state.invert_classes = invert_toggle
+        if invert_toggle:
+            st.warning("⚠️ Class inversion is ENABLED. Results will be reversed.")
 
     # ── Check model availability ──────────────────────────────────────────────
     available = list_available_models()
@@ -38,8 +61,16 @@ def show_detect_page():
     uploaded = st.file_uploader(
         "Upload Fundus Image (PNG / JPG / JPEG)",
         type=["png", "jpg", "jpeg"],
-        key="user_upload",
     )
+    
+    # ── Detect new file upload and force rerun ────────────────────────────────
+    if uploaded is not None:
+        current_file_id = id(uploaded)
+        if current_file_id != st.session_state.uploaded_file_id:
+            st.session_state.uploaded_file_id = current_file_id
+            # Clear any cached predictions
+            if "last_prediction" in st.session_state:
+                del st.session_state["last_prediction"]
 
     if uploaded is None:
         st.info("👆 Please upload a fundus image to begin analysis.")
@@ -56,7 +87,7 @@ def show_detect_page():
     # ── Run Analysis ──────────────────────────────────────────────────────────
     with st.spinner("🔄 Loading model…"):
         try:
-            model = load_model(MAIN_MODEL)
+            model = get_cached_model(MAIN_MODEL)
         except Exception as e:
             st.error(f"Failed to load model: {e}")
             return
@@ -68,13 +99,24 @@ def show_detect_page():
         pil_img = load_image_pil(uploaded)
         st.image(pil_img, use_column_width=True)
 
+    # ── Store predictions in session state to ensure fresh analysis ──────────
     with st.spinner("🧠 Running inference + Grad-CAM…"):
-        # Preprocess & predict
+        # Force fresh prediction by always recomputing (don't use cache)
         img_batch = preprocess_for_model(uploaded, MAIN_MODEL)
         preds = model.predict(img_batch, verbose=0)[0]   # (5,)
+        
+        # ── FIX: Apply class reversal if needed ────────────────────────────────
+        preds = fix_predictions(preds, invert=st.session_state.get("invert_classes", False))
+        
         predicted_stage = int(np.argmax(preds))
+        
+        # Store in session to ensure we display this analysis
+        st.session_state.current_prediction = {
+            "preds": preds,
+            "stage": predicted_stage,
+        }
 
-        # Grad-CAM
+        # Grad-CAM (always fresh)
         uploaded.seek(0)
         try:
             original_pil, gradcam_pil, _ = generate_gradcam(model, uploaded, MAIN_MODEL, predicted_stage)

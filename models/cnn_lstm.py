@@ -18,25 +18,20 @@ def build_cnn_lstm(num_classes: int = NUM_CLASSES,
     inp = layers.Input(shape=input_shape, name="input")   # (batch, 1, H, W, 3)
 
     # TimeDistributed CNN Feature Extractor
-    x = layers.TimeDistributed(layers.Conv2D(32, 3, padding="same", activation="relu"),
-                                name="time_distributed_0")(inp)
-    x = layers.TimeDistributed(layers.MaxPooling2D(2))(x)
+    x = layers.TimeDistributed(layers.Conv2D(32, 3, padding="same", activation="relu", name="conv1"), name="td_conv1")(inp)
+    x = layers.TimeDistributed(layers.MaxPooling2D(2, name="pool1"), name="td_pool1")(x)
 
-    x = layers.TimeDistributed(layers.Conv2D(64, 3, padding="same", activation="relu"),
-                                name="time_distributed_1")(x)
-    x = layers.TimeDistributed(layers.MaxPooling2D(2))(x)
+    x = layers.TimeDistributed(layers.Conv2D(64, 3, padding="same", activation="relu", name="conv2"), name="td_conv2")(x)
+    x = layers.TimeDistributed(layers.MaxPooling2D(2, name="pool2"), name="td_pool2")(x)
 
-    x = layers.TimeDistributed(layers.Conv2D(128, 3, padding="same", activation="relu"),
-                                name="time_distributed_2")(x)
-    x = layers.TimeDistributed(layers.MaxPooling2D(2))(x)
+    x = layers.TimeDistributed(layers.Conv2D(128, 3, padding="same", activation="relu", name="conv3"), name="td_conv3")(x)
+    x = layers.TimeDistributed(layers.MaxPooling2D(2, name="pool3"), name="td_pool3")(x)
 
-    x = layers.TimeDistributed(layers.Conv2D(256, 3, padding="same", activation="relu"),
-                                name="time_distributed_3")(x)
-    x = layers.TimeDistributed(layers.MaxPooling2D(2))(x)
+    x = layers.TimeDistributed(layers.Conv2D(256, 3, padding="same", activation="relu", name="conv4"), name="td_conv4")(x)
+    x = layers.TimeDistributed(layers.MaxPooling2D(2, name="pool4"), name="td_pool4")(x)
 
-    x = layers.TimeDistributed(layers.Conv2D(256, 3, padding="same", activation="relu"),
-                                name="time_distributed_4")(x)
-    x = layers.TimeDistributed(layers.GlobalAveragePooling2D())(x)  # (batch, 1, 256)
+    x = layers.TimeDistributed(layers.Conv2D(256, 3, padding="same", activation="relu", name="conv5"), name="td_conv5")(x)
+    x = layers.TimeDistributed(layers.GlobalAveragePooling2D(name="gap"), name="td_gap")(x)  # (batch, 1, 256)
 
     # LSTM
     x = layers.LSTM(256, return_sequences=False, dropout=0.3)(x)

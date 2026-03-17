@@ -33,9 +33,7 @@ def build_inception_resnet_lstm(num_classes: int = NUM_CLASSES,
 
     # Apply CNN feature extraction to each frame via TimeDistributed
     x = layers.TimeDistributed(base, name="inception_resnetv2")(inp)
-    # x shape: (batch, 1, h, w, C)   – output from InceptionResNetV2 conv layers
-
-    # GradCAM target layer: 'mixed_7a' is inside the base. Access via TimeDistributed.
+    
     x = layers.TimeDistributed(layers.GlobalAveragePooling2D(),
                                 name="td_gap")(x)          # (batch, 1, 1536)
 

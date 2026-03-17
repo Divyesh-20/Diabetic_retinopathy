@@ -10,6 +10,7 @@ import json
 
 from utils.auth import require_role
 from utils.metrics import list_evaluated_models, load_results
+from utils.class_reversal_fix import should_reverse_classes, set_class_reversal
 from models.model_factory import list_available_models, list_all_models
 from utils.dataset import get_dataset_stats
 from config import MODELS, DR_STAGES, DR_STAGE_COLORS, DATA_DIR
@@ -82,6 +83,25 @@ def show_dashboard_page():
 
     # ── Quick Access ──────────────────────────────────────────────────────────
     st.divider()
+    
+    # ── Class Reversal Configuration ──────────────────────────────────────────
+    with st.expander("🔧 System Configuration"):
+        st.markdown("##### Class Reversal (for inverted predictions)")
+        current_reversal = should_reverse_classes()
+        new_reversal = st.checkbox(
+            "Enable class reversal for all models",
+            value=current_reversal,
+            help="Enable if No_DR images are predicted as Proliferative_DR (or similar inversion)"
+        )
+        
+        if new_reversal != current_reversal:
+            set_class_reversal(new_reversal)
+            st.success(f"✅ Class reversal {'enabled' if new_reversal else 'disabled'}")
+            st.rerun()
+        
+        if new_reversal:
+            st.warning("⚠️ Class reversal is currently ENABLED - predictions will be reversed for all users")
+    
     st.markdown("#### ⚡ Quick Actions")
     qcol1, qcol2, qcol3 = st.columns(3)
     with qcol1:

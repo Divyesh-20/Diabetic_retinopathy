@@ -44,12 +44,6 @@ DR_STAGE_COLORS = {
 
 # ── Model Registry ────────────────────────────────────────────────────────────
 MODELS = {
-    "alexnet":               "AlexNet",
-    "densenet":              "DenseNet121",
-    "inceptionnet":          "InceptionV3",
-    "efficientnet":          "EfficientNetB0",
-    "resnet":                "ResNet50",
-    "mobilenet":             "MobileNetV2",
     "cnn_lstm":              "CNN + LSTM Hybrid",
     "inception_resnet_lstm": "InceptionResNetV2 + LSTM (Main)",
     "mobilenet_lstm":        "MobileNetV2 + LSTM Hybrid",
@@ -69,13 +63,7 @@ DEFAULT_BATCH_SIZE  = 16
 
 # ── GradCAM Last-Conv Layer Names per Model ───────────────────────────────────
 GRADCAM_LAYERS = {
-    "alexnet":               "conv2d_4",
-    "densenet":              "conv5_block16_1_conv",
-    "inceptionnet":          "mixed10",
-    "efficientnet":          "top_conv",
-    "resnet":                "conv5_block3_out",
-    "mobilenet":             "Conv_1",
-    "cnn_lstm":              "time_distributed_4",
+    "cnn_lstm":              "td_conv5",
     "inception_resnet_lstm": "mixed_7a",
     "mobilenet_lstm":        "Conv_1",
 }
