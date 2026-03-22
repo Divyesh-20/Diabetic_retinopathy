@@ -1,13 +1,13 @@
 # Diabetic Retinopathy Detection System 👁️🩺
 
-A full-stack, end-to-end Deep Learning platform for detecting and grading Diabetic Retinopathy (DR) from retinal fundus images. Built natively in Python with a comprehensive **Streamlit** dashboard, this project features 9 robust CNN and hybrid LSTM architectures, clinical explainability via Grad-CAM, and dynamically generated medical PDF reports.
+A full-stack, end-to-end Deep Learning platform for detecting and grading Diabetic Retinopathy (DR) from retinal fundus images. Built natively in Python with a comprehensive **Streamlit** dashboard, this project features 3 high-performance hybrid CNN+LSTM architectures, clinical explainability via Grad-CAM, and dynamically generated medical PDF reports.
 
 ---
 
 ## 🚀 Features
 
 - **Dual-Role Dashboard (Admin & User):** Secure session-state role management separates clinical inference from model engineering with role-based access control.
-- **3 Interchangeable Deep Learning Models:** Easily train, evaluate, and switch between custom architectures:
+- **3 High-Performance Hybrid Models:** Easily train, evaluate, and switch between optimized architectures:
   - **CNN+LSTM:** Classic sequence-aware convolutional architecture for temporal patterns.
   - **MobileNetV2+LSTM:** Lightweight variant optimized for inference speed and resource efficiency.
   - **InceptionResNetV2+LSTM** (Primary): State-of-the-art hybrid combining residual networks with sequence learning for superior accuracy.
@@ -40,20 +40,30 @@ A full-stack, end-to-end Deep Learning platform for detecting and grading Diabet
 ├── app.py                     # Main Streamlit Entry Router
 ├── config.py                  # Global settings, paths, and model registry
 ├── requirements.txt           # Python dependencies
-├── models/                    # 9 DL architectures + unified Model Factory
+├── models/
+│   ├── cnn_lstm.py            # CNN+LSTM hybrid architecture
+│   ├── inception_resnet_lstm.py  # InceptionResNetV2+LSTM (Primary)
+│   ├── mobilenet_lstm.py      # MobileNetV2+LSTM (Lightweight)
+│   └── model_factory.py       # Unified model factory
 ├── pages/
 │   ├── login.py               # Auth portal
-│   ├── admin/                 # Dashboard, Train, Evaluate, Compare pages
-│   └── user/                  # Inference, Grad-CAM, and PDF Download
-├── utils/                     
+│   ├── admin/
+│   │   ├── train.py           # Model training interface
+│   │   ├── evaluate.py        # Evaluation and metrics
+│   │   ├── dashboard.py       # Admin overview
+│   │   └── compare.py         # Model comparison
+│   └── user/
+│       └── detect.py          # Inference and Grad-CAM
+├── utils/
 │   ├── auth.py                # Session management
-│   ├── dataset.py             # Data loader, stratifier, and class weighter
+│   ├── dataset.py             # Data loading and stratification
 │   ├── gradcam.py             # Heatmap generation
 │   ├── metrics.py             # Cohen's Kappa, AUC, F1 calculators
-│   ├── preprocessing.py       # CLAHE & image normalization
-│   ├── report_generator.py    # PDF Compiler
-│   └── trainer.py             # TF Training Loop with Streamlit Callbacks
-└── dataset/                   # Your fundus image repository (See Setup)
+│   ├── preprocessing.py       # CLAHE & normalization
+│   ├── report_generator.py    # PDF compilation
+│   ├── trainer.py             # TensorFlow training loop
+│   └── class_reversal_fix.py  # Prediction correction utility
+└── dataset/                   # Retinal fundus image repository
 ```
 
 ---
@@ -453,4 +463,4 @@ For issues, questions, or feature requests:
 ---
 
 **Last Updated:** March 2026  
-**Version:** 2.0
+**Version:** 3.0 (Hybrid Models Only)
