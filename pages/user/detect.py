@@ -1,5 +1,5 @@
 """
-pages/user/detect.py – User-facing detection page
+User-facing detection page 
 """
 
 import streamlit as st
@@ -7,154 +7,151 @@ import numpy as np
 from PIL import Image
 
 from utils.auth import require_role
-from utils.preprocessing import preprocess_for_model, load_image_pil
+from utils.preprocessing import preprocess_for_model, load_image_pil, validate_fundus_image
 from utils.gradcam import generate_gradcam
 from utils.report_generator import generate_pdf_report
-from utils.class_reversal_fix import fix_predictions, should_reverse_classes
 from models.model_factory import load_model, list_available_models
-from config import DR_STAGES, DR_STAGE_DESCRIPTIONS, DR_STAGE_COLORS, MAIN_MODEL, MODELS
+from config import DR_STAGES, DR_STAGE_DESCRIPTIONS, DR_STAGE_COLORS, MAIN_MODEL
 
 
+# ── Cached Model Loader ─────────────────────────────────────────────
 @st.cache_resource
 def get_cached_model(model_name):
-    """Cache model in session to avoid reloading on every rerun."""
     return load_model(model_name)
 
 
+# ── Inference Logic (Separated) ─────────────────────────────────────
+def run_inference(uploaded_file, model):
+    img_batch = preprocess_for_model(uploaded_file, MAIN_MODEL)
+    preds = model.predict(img_batch, verbose=0)[0]
+    predicted_stage = int(np.argmax(preds))
+    return preds, predicted_stage
+
+
+# ── Page UI ─────────────────────────────────────────────────────────
 def show_detect_page():
     require_role("user")
 
     st.markdown("## 🔬 Fundus Image Analysis")
-    st.markdown("Upload a retinal fundus image to detect the stage of Diabetic Retinopathy.")
+    st.markdown("Upload a retinal fundus image to detect Diabetic Retinopathy stage.")
     st.divider()
 
-    # ── Initialize session state for file tracking ────────────────────────────
-    if "uploaded_file_id" not in st.session_state:
-        st.session_state.uploaded_file_id = None
-    
-    # ── Debug option: Invert class predictions ────────────────────────────────
-    with st.expander("⚙️ Debug Settings"):
-        default_invert = should_reverse_classes()
-        invert_toggle = st.checkbox(
-            "🔄 Invert DR Stage Classes (if predictions seem reversed)",
-            value=default_invert,
-            help="Enable this if No_DR images show as Proliferative_DR. This reverses the class order."
-        )
-        st.session_state.invert_classes = invert_toggle
-        if invert_toggle:
-            st.warning("⚠️ Class inversion is ENABLED. Results will be reversed.")
-
-    # ── Check model availability ──────────────────────────────────────────────
+    # ── Check Model Availability ─────────────────────────────────────
     available = list_available_models()
     if MAIN_MODEL not in available:
         st.warning(
-            "⚠️ The main model (**InceptionResNetV2 + LSTM**) has not been trained yet. "
-            "Please ask the admin to train it first."
-        )
-        st.info(
-            "If no models are trained, you can still test the pipeline by having admin "
-            "train any model from the **Admin → Train Model** page."
+            "⚠️ Main model not trained yet. Ask admin to train it."
         )
         return
 
-    # ── File Upload ───────────────────────────────────────────────────────────
+    # ── Upload ───────────────────────────────────────────────────────
     uploaded = st.file_uploader(
         "Upload Fundus Image (PNG / JPG / JPEG)",
         type=["png", "jpg", "jpeg"],
     )
-    
-    # ── Detect new file upload and force rerun ────────────────────────────────
-    if uploaded is not None:
-        current_file_id = id(uploaded)
-        if current_file_id != st.session_state.uploaded_file_id:
-            st.session_state.uploaded_file_id = current_file_id
-            # Clear any cached predictions
-            if "last_prediction" in st.session_state:
-                del st.session_state["last_prediction"]
 
     if uploaded is None:
-        st.info("👆 Please upload a fundus image to begin analysis.")
-        # Show demo card
-        with st.expander("ℹ️ About this tool"):
-            st.markdown("""
-            - **Model**: InceptionResNetV2 + LSTM hybrid
-            - **Input**: Colour fundus photograph (any resolution)
-            - **Output**: DR stage (0–4) + confidence scores + Grad-CAM heatmap + PDF report
-            - **Stages**: No DR → Mild → Moderate → Severe → Proliferative DR
-            """)
+        st.info("Upload a fundus image to begin.")
         return
 
-    # ── Run Analysis ──────────────────────────────────────────────────────────
-    with st.spinner("🔄 Loading model…"):
+    # ── Load Model ───────────────────────────────────────────────────
+    with st.spinner("Loading model..."):
         try:
             model = get_cached_model(MAIN_MODEL)
         except Exception as e:
-            st.error(f"Failed to load model: {e}")
+            st.error(f"Model load failed: {e}")
             return
 
+    # ── Display Image ─────────────────────────────────────────────────
     col_img, col_res = st.columns([1, 1])
 
     with col_img:
-        st.markdown("#### Original Fundus Image")
+        st.markdown("#### Original Image")
         pil_img = load_image_pil(uploaded)
         st.image(pil_img, use_column_width=True)
 
-    # ── Store predictions in session state to ensure fresh analysis ──────────
-    with st.spinner("🧠 Running inference + Grad-CAM…"):
-        # Force fresh prediction by always recomputing (don't use cache)
-        img_batch = preprocess_for_model(uploaded, MAIN_MODEL)
-        preds = model.predict(img_batch, verbose=0)[0]   # (5,)
-        
-        # ── FIX: Apply class reversal if needed ────────────────────────────────
-        preds = fix_predictions(preds, invert=st.session_state.get("invert_classes", False))
-        
-        predicted_stage = int(np.argmax(preds))
-        
-        # Store in session to ensure we display this analysis
-        st.session_state.current_prediction = {
-            "preds": preds,
-            "stage": predicted_stage,
-        }
+    # ── Validate Image ────────────────────────────────────────────────
+    with st.spinner("Validating image..."):
+        img_array = np.array(pil_img.resize((224, 224)))
+        is_valid, reason = validate_fundus_image(img_array)
 
-        # Grad-CAM (always fresh)
+    if not is_valid:
+        st.error("❌ This does not appear to be a retinal fundus image")
+        with st.expander("🔍 See why your image was rejected", expanded=True):
+            st.markdown(f"""
+**Validation result:** `{reason}`
+
+**What is a fundus image?**  
+A fundus (retinal) image is a specialized photograph of the back of the eye, taken with an ophthalmoscope or fundus camera. 
+It typically looks like a **circular orange/red disc** on a **black background**, with visible **blood vessels** branching from a central bright spot (optic disc).
+
+**Tips:**
+- ✅ Use images from a fundus camera or eye-screening device  
+- ✅ The image should have orange/red tones with a dark border  
+- ❌ Regular photographs, screenshots, or microscopy images will be rejected  
+- ❌ Grayscale, blue-tinted, or plain-colored images will be rejected  
+""")
+        return
+
+    # ── Inference ────────────────────────────────────────────────────
+    with st.spinner("Running analysis..."):
+        preds, predicted_stage = run_inference(uploaded, model)
+
+        # Confidence
+        confidence = float(preds[predicted_stage]) * 100
+
+        # Sanity check
+        if np.max(preds) < 0.4:
+            st.warning("⚠️ Low confidence prediction. Result may be unreliable.")
+
+        # Grad-CAM
         uploaded.seek(0)
         try:
-            original_pil, gradcam_pil, _ = generate_gradcam(model, uploaded, MAIN_MODEL, predicted_stage)
+            _, gradcam_pil, _ = generate_gradcam(
+                model, uploaded, MAIN_MODEL, predicted_stage
+            )
         except Exception:
-            gradcam_pil = pil_img   # fallback: show original if GradCAM fails
+            gradcam_pil = pil_img
 
-    # ── Display Results ───────────────────────────────────────────────────────
+    # ── Display Result ───────────────────────────────────────────────
     stage_label = DR_STAGES[predicted_stage]
-    hex_color   = DR_STAGE_COLORS[predicted_stage]
-    confidence  = float(preds[predicted_stage]) * 100
+    hex_color = DR_STAGE_COLORS[predicted_stage]
 
     with col_res:
         st.markdown("#### Diagnosis Result")
         st.markdown(
-            f"""<div style="background:{hex_color}22; border-left:5px solid {hex_color};
-                           padding:16px; border-radius:8px; margin-bottom:12px;">
-                <h2 style="color:{hex_color}; margin:0;">Stage {predicted_stage}: {stage_label}</h2>
-                <p style="color:#fff; margin:6px 0 0 0; font-size:1rem;">
+            f"""
+            <div style="background:{hex_color}22; border-left:5px solid {hex_color};
+                        padding:16px; border-radius:8px;">
+                <h2 style="color:{hex_color}; margin:0;">
+                    Stage {predicted_stage}: {stage_label}
+                </h2>
+                <p style="color:#fff; margin-top:6px;">
                     {DR_STAGE_DESCRIPTIONS[predicted_stage]}
                 </p>
-              </div>""",
+            </div>
+            """,
             unsafe_allow_html=True,
         )
+
         st.markdown(f"**Confidence:** `{confidence:.1f}%`")
 
-    # ── GradCAM ───────────────────────────────────────────────────────────────
+    # ── Grad-CAM + Chart ─────────────────────────────────────────────
     st.divider()
     col_gc1, col_gc2 = st.columns(2)
-    with col_gc1:
-        st.markdown("#### 🎯 Grad-CAM Heatmap")
-        st.image(gradcam_pil, use_column_width=True, caption="Red regions = model's focus areas")
 
-    # ── Confidence Bar Chart ──────────────────────────────────────────────────
+    with col_gc1:
+        st.markdown("#### Grad-CAM")
+        st.image(gradcam_pil, use_column_width=True)
+
     with col_gc2:
-        st.markdown("#### 📊 Confidence Scores per Stage")
+        st.markdown("#### Confidence Scores")
+
         import plotly.graph_objects as go
+
         stage_names = [f"Stage {i}: {DR_STAGES[i]}" for i in range(5)]
-        bar_colors  = [DR_STAGE_COLORS[i] for i in range(5)]
+        bar_colors = [DR_STAGE_COLORS[i] for i in range(5)]
+
         fig = go.Figure(go.Bar(
             x=[f"{p*100:.1f}%" for p in preds],
             y=stage_names,
@@ -163,20 +160,18 @@ def show_detect_page():
             text=[f"{p*100:.1f}%" for p in preds],
             textposition="auto",
         ))
+
         fig.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="white"),
-            xaxis=dict(showgrid=False, range=[0, 100]),
-            yaxis=dict(showgrid=False),
-            margin=dict(l=0, r=0, t=10, b=0),
+            xaxis=dict(range=[0, 100]),
             height=280,
         )
+
         st.plotly_chart(fig, use_container_width=True)
 
-    # ── PDF Report Download ───────────────────────────────────────────────────
+    # ── PDF Report ───────────────────────────────────────────────────
     st.divider()
-    st.markdown("#### 📄 Download Report")
+    st.markdown("#### Download Report")
+
     try:
         uploaded.seek(0)
         pdf_bytes = generate_pdf_report(
@@ -186,12 +181,14 @@ def show_detect_page():
             confidence_scores=preds,
             model_name=MAIN_MODEL,
         )
+
         st.download_button(
-            label="⬇️ Download PDF Report",
+            label="Download PDF Report",
             data=pdf_bytes,
-            file_name="DR_Detection_Report.pdf",
+            file_name="DR_Report.pdf",
             mime="application/pdf",
             use_container_width=True,
         )
+
     except Exception as e:
         st.error(f"PDF generation failed: {e}")

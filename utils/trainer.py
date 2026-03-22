@@ -6,61 +6,76 @@ import os
 import numpy as np
 import tensorflow as tf
 from config import SAVED_MODELS_DIR, DEFAULT_EPOCHS, DEFAULT_LR, DEFAULT_BATCH_SIZE
+from models.model_factory import get_model_save_path
 
 
 def get_callbacks(model_name: str, patience: int = 7):
-    """Standard training callbacks."""
     os.makedirs(SAVED_MODELS_DIR, exist_ok=True)
-    weight_path = os.path.join(SAVED_MODELS_DIR, f"{model_name}.h5")
+    save_path = get_model_save_path(model_name)
+
+    monitor = "val_loss"
+
     return [
         tf.keras.callbacks.ModelCheckpoint(
-            filepath=weight_path,
+            filepath=save_path,
             save_best_only=True,
-            monitor="val_accuracy",
-            mode="max",
-            verbose=0,
+            save_weights_only=False,
+            monitor=monitor,
+            mode="min",
+            verbose=1,
         ),
         tf.keras.callbacks.EarlyStopping(
-            monitor="val_loss",
+            monitor=monitor,
             patience=patience,
             restore_best_weights=True,
-            verbose=0,
+            mode="min",
+            verbose=1,
         ),
         tf.keras.callbacks.ReduceLROnPlateau(
-            monitor="val_loss",
-            factor=0.5,
-            patience=3,
-            min_lr=1e-7,
-            verbose=0,
+            monitor=monitor,
+            factor=0.3,
+            patience=2,
+            min_lr=1e-6,
+            verbose=1,
         ),
     ]
 
-
 def train_model(model: tf.keras.Model,
-                model_name: str,
-                train_ds,
-                val_ds,
-                epochs: int = DEFAULT_EPOCHS,
-                learning_rate: float = DEFAULT_LR,
-                class_weights: dict = None,
-                progress_callback=None) -> dict:
+    model_name: str,
+    train_ds,
+    val_ds,
+    epochs: int = DEFAULT_EPOCHS,
+    learning_rate: float = DEFAULT_LR,
+    class_weights: dict = None,
+    progress_callback=None,
+    fine_tuning: bool = False,
+    extra_callbacks: list = None, ) -> dict:
     """
     Compile and train the model.
+    fine_tuning: if True, halve the learning rate and add label smoothing.
     progress_callback: optional callable(epoch, logs) for Streamlit progress updates.
-    Returns: history dict {train_acc, val_acc, train_loss, val_loss}
+    Returns: history dict
     """
+    DEFAULT_LR = 1e-4
+    actual_lr = learning_rate * 0.1 if fine_tuning else learning_rate
+    min_lr = 1e-6
+
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
-        loss="categorical_crossentropy",
-        metrics=["accuracy",
-                 tf.keras.metrics.AUC(name="auc"),
-                 tf.keras.metrics.Precision(name="precision"),
-                 tf.keras.metrics.Recall(name="recall")],
+        optimizer=tf.keras.optimizers.Adam(learning_rate=actual_lr),
+        loss=tf.keras.losses.CategoricalCrossentropy(
+            label_smoothing=0.05 if fine_tuning else 0.02           # ← Prevents overconfidence, improves generalization
+        ),
+        metrics=[
+            "accuracy",
+            tf.keras.metrics.AUC(name="auc"),
+            tf.keras.metrics.Precision(name="precision"),
+            tf.keras.metrics.Recall(name="recall"),
+        ],
     )
 
     callbacks = get_callbacks(model_name)
 
-    # Wrap progress callback
+    # Streamlit live progress callback
     class StreamlitProgressCallback(tf.keras.callbacks.Callback):
         def on_epoch_end(self, epoch, logs=None):
             if progress_callback:
@@ -69,13 +84,16 @@ def train_model(model: tf.keras.Model,
     if progress_callback:
         callbacks.append(StreamlitProgressCallback())
 
+    if extra_callbacks:
+        callbacks.extend(extra_callbacks)    
+
     history = model.fit(
         train_ds,
         validation_data=val_ds,
         epochs=epochs,
         class_weight=class_weights,
         callbacks=callbacks,
-        verbose=0,
+        verbose=1,    # ← prints epoch progress in terminal (loss, acc, val_loss, val_acc)
     )
 
     return {
@@ -104,6 +122,8 @@ def evaluate_model_on_dataset(model: tf.keras.Model, test_ds) -> tuple:
 
 
 def is_model_trained(model_name: str) -> bool:
-    """Check if saved weights exist for this model."""
-    path = os.path.join(SAVED_MODELS_DIR, f"{model_name}.h5")
-    return os.path.exists(path)
+    """Check if a saved model exists (either .keras or .h5)."""
+    from models.model_factory import get_model_save_path, get_model_legacy_path
+    keras_path = get_model_save_path(model_name)
+    h5_path    = get_model_legacy_path(model_name)
+    return os.path.exists(keras_path) or os.path.exists(h5_path)
