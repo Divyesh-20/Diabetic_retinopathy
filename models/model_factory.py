@@ -9,34 +9,10 @@ from config import SAVED_MODELS_DIR, MODELS
 
 def build_model(model_name: str, trainable_base: bool = False) -> tf.keras.Model:
     """
-    Instantiate a fresh model by name.
-    model_name: one of the keys in config.MODELS
+    Instantiate a fresh hybrid (CNN+LSTM) model by name.
+    Supported models: cnn_lstm, inception_resnet_lstm, mobilenet_lstm
     """
-    if model_name == "alexnet":
-        from models.alexnet import build_alexnet
-        return build_alexnet()
-
-    elif model_name == "densenet":
-        from models.densenet import build_densenet
-        return build_densenet(trainable_base=trainable_base)
-
-    elif model_name == "inceptionnet":
-        from models.inceptionnet import build_inceptionnet
-        return build_inceptionnet(trainable_base=trainable_base)
-
-    elif model_name == "efficientnet":
-        from models.efficientnet import build_efficientnet
-        return build_efficientnet(trainable_base=trainable_base)
-
-    elif model_name == "resnet":
-        from models.resnet import build_resnet
-        return build_resnet(trainable_base=trainable_base)
-
-    elif model_name == "mobilenet":
-        from models.mobilenet import build_mobilenet
-        return build_mobilenet(trainable_base=trainable_base)
-
-    elif model_name == "cnn_lstm":
+    if model_name == "cnn_lstm":
         from models.cnn_lstm import build_cnn_lstm
         return build_cnn_lstm()
 
@@ -49,8 +25,10 @@ def build_model(model_name: str, trainable_base: bool = False) -> tf.keras.Model
         return build_mobilenet_lstm(trainable_base=trainable_base)
 
     else:
-        raise ValueError(f"Unknown model name: '{model_name}'. "
-                         f"Choose from: {list(MODELS.keys())}")
+        raise ValueError(
+            f"Unknown model: '{model_name}'. "
+            f"Available models: {list(MODELS.keys())}"
+        )
 
 
 def get_model_save_path(model_name: str) -> str:
