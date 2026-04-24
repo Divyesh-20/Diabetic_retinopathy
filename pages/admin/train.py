@@ -7,6 +7,7 @@ import numpy as np
 import plotly.graph_objects as go
 import os
 
+import tensorflow as tf
 from tensorflow.keras.callbacks import EarlyStopping
 
 from utils.auth import require_role
@@ -121,14 +122,28 @@ def show_train_page():
                     model = load_model(model_key)
                     fine_tuning = True
 
-                   
-
-                    # 🔴 Freeze most layers
-                    freeze_until = int(len(model.layers) * 0.8)
-                    for layer in model.layers[:freeze_until]:
+                    # ── Fine-tuning freeze strategy ───────────────────────
+                    # Step 1: Freeze ENTIRE model first
+                    for layer in model.layers:
                         layer.trainable = False
 
-                    st.success(f"Fine-tuning with LR={lr:.1e}")
+                    # Step 2: Unfreeze ONLY the top classification head
+                    # (last N non-BatchNorm layers). This prevents catastrophic
+                    # forgetting while allowing the head to adapt to the new data.
+                    unfreeze_top_n = 6   # Dense, Dropout, BN_lstm, LSTM, output
+                    non_bn_layers = [
+                        l for l in model.layers
+                        if not isinstance(l, tf.keras.layers.BatchNormalization)
+                    ]
+                    for layer in non_bn_layers[-unfreeze_top_n:]:
+                        layer.trainable = True
+
+                    trainable_count = sum(1 for l in model.layers if l.trainable)
+                    st.success(
+                        f"Fine-tuning mode — {trainable_count} of {len(model.layers)} "
+                        f"layers trainable. LR auto-reduced to {lr * 0.1:.1e} "
+                        f"(10× lower to prevent catastrophic forgetting)."
+                    )
 
                 except Exception as e:
                     st.warning("Failed to load model → training from scratch")

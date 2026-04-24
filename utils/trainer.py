@@ -9,11 +9,13 @@ from config import SAVED_MODELS_DIR, DEFAULT_EPOCHS, DEFAULT_LR, DEFAULT_BATCH_S
 from models.model_factory import get_model_save_path
 
 
-def get_callbacks(model_name: str, patience: int = 7):
+def get_callbacks(model_name: str, patience: int = 7, fine_tuning: bool = False):
     os.makedirs(SAVED_MODELS_DIR, exist_ok=True)
     save_path = get_model_save_path(model_name)
 
     monitor = "val_loss"
+    # Fine-tuning is more volatile → be a little more patient before stopping
+    eff_patience = patience + 3 if fine_tuning else patience
 
     return [
         tf.keras.callbacks.ModelCheckpoint(
@@ -26,21 +28,48 @@ def get_callbacks(model_name: str, patience: int = 7):
         ),
         tf.keras.callbacks.EarlyStopping(
             monitor=monitor,
-            patience=patience,
-            restore_best_weights=True,
+            patience=eff_patience,
+            restore_best_weights=True,   # ← CRITICAL: restores best weights on stop
             mode="min",
             verbose=1,
         ),
         tf.keras.callbacks.ReduceLROnPlateau(
             monitor=monitor,
-            factor=0.3,
-            patience=2,
-            min_lr=1e-6,
+            factor=0.5,          # gentler reduction during fine-tuning
+            patience=3,
+            min_lr=1e-7,
             verbose=1,
         ),
     ]
 
-def train_model(model: tf.keras.Model,
+
+def _freeze_batch_norm_layers(model: tf.keras.Model):
+    """
+    Keep BatchNormalization layers frozen during fine-tuning.
+    BN running statistics are calibrated on ImageNet; re-training them
+    with a small domain-specific dataset destabilises the backbone.
+    """
+    bn_frozen = 0
+    for layer in model.layers:
+        if isinstance(layer, tf.keras.layers.BatchNormalization):
+            layer.trainable = False
+            bn_frozen += 1
+        # Handle nested models (e.g. TimeDistributed wrapping InceptionResNetV2)
+        elif hasattr(layer, "layer") and isinstance(layer.layer, tf.keras.Model):
+            for sub in layer.layer.layers:
+                if isinstance(sub, tf.keras.layers.BatchNormalization):
+                    sub.trainable = False
+                    bn_frozen += 1
+        elif hasattr(layer, "layers"):
+            for sub in layer.layers:
+                if isinstance(sub, tf.keras.layers.BatchNormalization):
+                    sub.trainable = False
+                    bn_frozen += 1
+    return bn_frozen
+
+
+def train_model(
+    model: tf.keras.Model,
     model_name: str,
     train_ds,
     val_ds,
@@ -49,21 +78,42 @@ def train_model(model: tf.keras.Model,
     class_weights: dict = None,
     progress_callback=None,
     fine_tuning: bool = False,
-    extra_callbacks: list = None, ) -> dict:
+    extra_callbacks: list = None,
+) -> dict:
     """
     Compile and train the model.
-    fine_tuning: if True, halve the learning rate and add label smoothing.
-    progress_callback: optional callable(epoch, logs) for Streamlit progress updates.
+
+    Fine-tuning fixes applied:
+      1. LR is scaled down to 1/10th (prevents catastrophic forgetting)
+      2. BatchNorm layers are frozen (preserves ImageNet statistics)
+      3. Label smoothing is lower for fine-tuning (model is already calibrated)
+      4. EarlyStopping patience is increased (fine-tuning converges slower)
+      5. ReduceLROnPlateau uses a gentler factor (0.5 instead of 0.3)
+
     Returns: history dict
     """
-    DEFAULT_LR = 1e-4
+    # ── Learning rate ──────────────────────────────────────────────────────────
+    # Fine-tuning MUST use a much smaller LR to avoid destroying pre-trained weights
     actual_lr = learning_rate * 0.1 if fine_tuning else learning_rate
-    min_lr = 1e-6
 
+    # ── Freeze BatchNorm during fine-tuning ───────────────────────────────────
+    if fine_tuning:
+        bn_count = _freeze_batch_norm_layers(model)
+        print(f"[Fine-Tuning] Frozen {bn_count} BatchNorm layer(s) to preserve ImageNet statistics.")
+
+    # ── Compile ───────────────────────────────────────────────────────────────
+    # Label smoothing: lower during fine-tuning (model already calibrated)
+    label_smoothing = 0.02 if fine_tuning else 0.05
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=actual_lr),
+        optimizer=tf.keras.optimizers.Adam(
+            learning_rate=actual_lr,
+            beta_1=0.9,
+            beta_2=0.999,
+            epsilon=1e-7,
+            clipnorm=1.0,        # ← gradient clipping prevents weight explosions
+        ),
         loss=tf.keras.losses.CategoricalCrossentropy(
-            label_smoothing=0.05 if fine_tuning else 0.02           # ← Prevents overconfidence, improves generalization
+            label_smoothing=label_smoothing
         ),
         metrics=[
             "accuracy",
@@ -73,9 +123,9 @@ def train_model(model: tf.keras.Model,
         ],
     )
 
-    callbacks = get_callbacks(model_name)
+    # ── Callbacks ─────────────────────────────────────────────────────────────
+    callbacks = get_callbacks(model_name, fine_tuning=fine_tuning)
 
-    # Streamlit live progress callback
     class StreamlitProgressCallback(tf.keras.callbacks.Callback):
         def on_epoch_end(self, epoch, logs=None):
             if progress_callback:
@@ -85,15 +135,16 @@ def train_model(model: tf.keras.Model,
         callbacks.append(StreamlitProgressCallback())
 
     if extra_callbacks:
-        callbacks.extend(extra_callbacks)    
+        callbacks.extend(extra_callbacks)
 
+    # ── Fit ───────────────────────────────────────────────────────────────────
     history = model.fit(
         train_ds,
         validation_data=val_ds,
         epochs=epochs,
         class_weight=class_weights,
         callbacks=callbacks,
-        verbose=1,    # ← prints epoch progress in terminal (loss, acc, val_loss, val_acc)
+        verbose=1,
     )
 
     return {

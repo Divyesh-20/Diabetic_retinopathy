@@ -170,6 +170,7 @@ with st.sidebar:
         logout()
         st.rerun()
 
+
 # ── Route to correct page ─────────────────────────────────────────────────────
 page = st.session_state.get("page", "")
 
