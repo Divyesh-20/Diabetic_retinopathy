@@ -97,12 +97,7 @@
 
 <div align="center">
 
-> 📌 **Record your Streamlit app and add GIF here**
 
-```
-<!-- Replace the line below with your actual GIF -->
-```
-<img src="assets/demo.gif" width="700" alt="App Demo"/>
 
 <br/>
 
@@ -110,7 +105,7 @@
 |:--------------:|:----------------:|:----------:|
 | <img src="assets/dashboard.png" width="220"/> | <img src="assets/heatmap.png" width="220"/> | <img src="assets/report.png" width="220"/> |
 
-> 💡 **Tip:** Use [ScreenToGif](https://www.screentogif.com/) or [OBS Studio](https://obsproject.com/) to record and export your demo.
+
 
 </div>
 
